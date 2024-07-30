@@ -25,26 +25,40 @@ router.post('/update-env', authenticate, async (req, res) => {
     try {
         // Save environment variables to MongoDB
         for (const key in envVars) {
-            const newEnv = new Env({
-                userEmail,
-                key,
-                value: envVars[key]
-            });
-            await newEnv.save();
+            await Env.updateOne(
+                { userEmail, key },
+                { value: envVars[key] },
+                { upsert: true }
+            );
         }
 
-        // Write environment variables to .env file
+        // Read the existing .env file
         const envPath = path.join(__dirname, '..', '.env');
-        let envContent = Object.keys(envVars)
-            .map(key => `${key}=${envVars[key]}`)
+        let existingEnvVars = {};
+
+        if (fs.existsSync(envPath)) {
+            const envFileContent = fs.readFileSync(envPath, 'utf-8');
+            existingEnvVars = envFileContent.split('\n').reduce((acc, line) => {
+                const [key, value] = line.split('=');
+                if (key && value) {
+                    acc[key.trim()] = value.trim();
+                }
+                return acc;
+            }, {});
+        }
+
+        // Update the existing environment variables with new values
+        for (const key in envVars) {
+            existingEnvVars[key] = envVars[key];
+        }
+
+        // Convert the updated object back to string
+        const newEnvContent = Object.keys(existingEnvVars)
+            .map(key => `${key}=${existingEnvVars[key]}`)
             .join('\n');
 
-        // Append a newline if file already exists
-        if (fs.existsSync(envPath)) {
-            envContent = '\n' + envContent;
-        }
-
-        fs.appendFileSync(envPath, envContent);
+        // Write the updated content back to the .env file
+        fs.writeFileSync(envPath, newEnvContent);
 
         res.status(200).send({ message: 'Environment variables updated successfully' });
     } catch (error) {
